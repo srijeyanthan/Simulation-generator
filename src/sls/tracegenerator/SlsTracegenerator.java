@@ -46,7 +46,10 @@ public class SlsTracegenerator {
     private int randomeNodeId = 0;
     private Map<Integer, SimulatedContainer> simulatedContainer = new HashMap<Integer, SimulatedContainer>();
     private Map<Integer, Integer> nodeManagerDistribution = new HashMap<Integer, Integer>();
-
+    private Map<Integer, Integer> containerDistribution = new HashMap<Integer, Integer>();
+    private final int[][] probabilityMatrix = new int[5][6];
+    private final int[][] jobsDistributionMatix = new int[5][6];
+    private Map<Integer,Integer> appDistribution = new HashMap<Integer, Integer>();
     public SlsTracegenerator(int noOfNodes, int numberofapplication, int jobLaunchTime, int singleJobTime, int numberOfCon) {
         this.numberOfNode = noOfNodes;
         this.jobLaunchTime = jobLaunchTime;
@@ -54,10 +57,43 @@ public class SlsTracegenerator {
         this.numberOfContainers = numberOfCon;
         this.numberOfJobs = numberofapplication;
         this.totalContainers = numberOfJobs * numberOfContainers;
+        for(int i=0;i<600;++i)
+            appDistribution.put(i, 0);
 
     }
 
-    public int getRandomNumber(int start, int end) {
+    public void fillProbabilityMatrix(int col, int row) {
+
+        int[] zeroColms = new int[6];
+        for (int i = 0; i < row; ++i) {
+            for (int j = 0; j < col; ++j) {
+                //only for last one
+                if (i == row - 1) {
+                    int random = getRandomNumber(0, 1);
+                    probabilityMatrix[i][j] = random;
+                    zeroColms[j] = random;
+                    System.out.println("row - " + i + " col - " + j + " val = " + random);
+                } else {
+                    System.out.println("row - " + i + " col - " + j);
+                    probabilityMatrix[i][j] = 1;
+                }
+            }
+        }
+
+        for (int i = 0; i < col; ++i) {
+            for (int j = 0; j < row; ++j) {
+                jobsDistributionMatix[j][i] = jobDistribtion.get(j) / 6;
+            }
+            if(zeroColms[i] == 0)
+                jobsDistributionMatix[2][i]=26;
+        }
+    }
+
+    private int getElement(int i, int j) {
+        return probabilityMatrix[i][j];
+    }
+
+    private int getRandomNumber(int start, int end) {
         Random rand = new Random();
         int randomNumber = rand.nextInt((end - start) + 1) + start;
         return randomNumber;
@@ -73,7 +109,12 @@ public class SlsTracegenerator {
             }
         }
     }
-
+    private void updateAppsDistribution(int jobStartTime){
+         int prefix = jobStartTime/1000;
+         if(appDistribution.containsKey(prefix)){
+             appDistribution.put(prefix, appDistribution.get(prefix)+1);
+         }
+    }
     public void createSLSTraceJobs(String machineId) throws IOException {
         int initalJobStartTime = 0;
         int jobEndTime = 100000;
@@ -84,9 +125,14 @@ public class SlsTracegenerator {
         ObjectMapper mapper = new ObjectMapper();
         ObjectWriter writer = mapper.defaultPrettyPrintingWriter();
         for (int n = 0; n < 6; ++n) {
-            for (int m = 0; m < 6; ++m) {
-
-                for (int i = 0; i < jobDistribtion.get(m) / 6; ++i) {
+            System.out.println("Generating the load to segment - " + (n + 1));
+            for (int m = 0; m < 5; ++m) {
+                if (getElement(m, n) == 0) {
+                    continue;
+                }
+                int numberOfJobs = jobsDistributionMatix[m][n];
+                System.out.println("Number of jobs " + numberOfJobs);
+                for (int i = 0; i < numberOfJobs; ++i) {
                     List array = new ArrayList();
                     Map json = new LinkedHashMap();
                     long l_lSeconds = System.currentTimeMillis() / 1000l;
@@ -99,7 +145,8 @@ public class SlsTracegenerator {
                     json.put("job.queue.name", "sls_queue_1");
                     json.put("job.id", jobId);
                     json.put("job.user", "sri");
-
+                     
+                    updateAppsDistribution(jobStartTime);
                     switch (m + 1) {
                         case 1:
                             numberOfContainers = getRandomNumber(1, 10);
@@ -122,7 +169,13 @@ public class SlsTracegenerator {
                         default:
                             break;
                     }
+                    if (containerDistribution.containsKey(m + 1)) {
+                        containerDistribution.put(m + 1, containerDistribution.get(m + 1) + numberOfContainers);
+                    } else {
+                        containerDistribution.put(m + 1, numberOfContainers);
+                    }
 
+                    //System.out.println(" ===== Number of container :"+numberOfContainers + "|number of jobs : "+numberOfJobs);
                     for (int j = 0; j < numberOfContainers; ++j) // number of containers
                     {
                         int localJobEndTime = 0;
@@ -162,6 +215,26 @@ public class SlsTracegenerator {
             jobEndTime = initalJobStartTime + 100000;
         }
         output.close();
+        int totalContainers = 0;
+        for (Integer values : containerDistribution.values()) {
+            totalContainers += values;
+        }
+        int range = 1;
+        for (Integer values : containerDistribution.values()) {
+            System.out.println("Range - " + range + " value -" + values + " percentage : " + (float) (values*100) / totalContainers);
+            ++range;
+        }
+        int counter=0;
+        int totalapp=0;
+        for(Integer appsValue :appDistribution.values()){
+            totalapp +=appsValue;
+            ++counter;
+           // if(counter%10 ==0){
+            System.out.println(totalapp);
+            totalapp=0;
+            //}
+            
+        }
     }
 
     public void createNodeManagerMap(int startingPos, String machineId) {
@@ -241,7 +314,7 @@ public class SlsTracegenerator {
             int singleJobTime = Integer.parseInt(args[3]);
             double containernodepercentage = Double.parseDouble(args[4]);
 
-            int[] applicationDisPer = {60, 20, 12, 5, 2, 1};
+            int[] applicationDisPer = {54, 18, 25, 2, 1};
             if (numberofapplication < 100) {
                 System.out.println("Number of applications should be greater than 100");
                 System.exit(-1);
@@ -254,7 +327,7 @@ public class SlsTracegenerator {
                 }
                 // job distribtion has a number of total application in 10 min
                 jobDistribtion.add((int) ((applicationDisPer[i] * numberofapplication) / 100));
-                System.out.println("Number of jobs :: " + (int) ((applicationDisPer[i] * numberofapplication) / 100));
+                System.out.println("Number of jobsjobsDistributionMatix :: " + (int) ((applicationDisPer[i] * numberofapplication) / 100));
             }
 
             String machineId = args[5];
@@ -263,6 +336,7 @@ public class SlsTracegenerator {
             System.out.println("Total containers : " + numberOfContainers * numberofapplication);
             // we are converting all the seconds to milliseconds
             SlsTracegenerator sls = new SlsTracegenerator(numberOfNode, numberofapplication, jobLaunchTime * 1000, singleJobTime * 1000, numberOfContainers);
+            sls.fillProbabilityMatrix(6, 5);
             sls.createNodeManagerMap(startingPos, machineId);
             sls.generateSLSNodeFile();
             sls.createSLSTraceJobs(machineId);
@@ -274,3 +348,4 @@ public class SlsTracegenerator {
     }
 
 }
+
